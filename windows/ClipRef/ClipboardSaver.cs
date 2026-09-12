@@ -3,7 +3,7 @@ using System.Globalization;
 namespace ClipRef;
 
 /// <summary>
-/// Decides what to do with the clipboard and recognizes ClipRef's own @-path references.
+/// Decides what to do with the clipboard and recognizes ClipRef's own path references.
 /// Pure and side-effect-free, so it is fully unit-testable. Mirrors the macOS
 /// <c>ClipboardSaver</c>; it currently holds only static members by design and will grow
 /// <c>uniqueURL</c>, the settings store, and the clipboard-saving action (with instance
@@ -42,14 +42,24 @@ internal sealed class ClipboardSaver
     }
 
     /// <summary>
-    /// True when <paramref name="text"/> already holds one of our @-path references: a single
-    /// token starting with '@' followed by a Windows absolute path. Used to skip re-saving a
+    /// Every prefix ClipRef has ever put on the clipboard. Deliberately a fixed set rather than the
+    /// configured <see cref="Settings.ReferencePrefix"/>: the question this answers is historical —
+    /// "did some ClipRef build put this here?" — about a clipboard that may still hold a reference
+    /// from an older build, from the macOS app, or from before the user changed the setting. Binding
+    /// it to the current setting would break the guard exactly when the prefix changes. The
+    /// trade-off is that a user-configured exotic prefix is unguarded.
+    /// </summary>
+    private static readonly char[] KnownPrefixes = ['§', '@'];
+
+    /// <summary>
+    /// True when <paramref name="text"/> already holds one of our path references: a single token
+    /// starting with a known prefix followed by a Windows absolute path. Used to skip re-saving a
     /// reference that the previous click just put on the clipboard.
     /// </summary>
     internal static bool LooksLikeReference(string text)
     {
         var trimmed = text.Trim();
-        if (!trimmed.StartsWith('@') || trimmed.Any(char.IsWhiteSpace))
+        if (trimmed.Length == 0 || !KnownPrefixes.Contains(trimmed[0]) || trimmed.Any(char.IsWhiteSpace))
         {
             return false;
         }

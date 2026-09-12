@@ -54,6 +54,9 @@ public class ClipboardSaverTests
     [Fact]
     public void ReferenceIgnoredEvenWithImage()
     {
+        Assert.Equal<SaveDecision>(new SaveDecision.Ignore(), ClipboardSaver.Decide(null, @"§C:\Users\me\clip.txt", false));
+        Assert.Equal<SaveDecision>(new SaveDecision.Ignore(), ClipboardSaver.Decide(null, @"§C:\Users\me\clip.png", true));
+        // Decide's ignore branch inherits detection, so the legacy prefix is guarded here too.
         Assert.Equal<SaveDecision>(new SaveDecision.Ignore(), ClipboardSaver.Decide(null, @"@C:\Users\me\clip.txt", false));
         Assert.Equal<SaveDecision>(new SaveDecision.Ignore(), ClipboardSaver.Decide(null, @"@C:\Users\me\clip.png", true));
     }
@@ -75,23 +78,50 @@ public class ClipboardSaverTests
     // looksLikeReference
 
     [Theory]
-    // Our own @-references with a Windows absolute path → recognized.
+    // Our own references with a Windows absolute path → recognized, under either known prefix.
+    [InlineData(@"§C:\Users\me\clip.txt", true)]
     [InlineData(@"@C:\Users\me\clip.txt", true)]
-    [InlineData(@"  @C:\Users\me\x.png  ", true)]   // surrounding whitespace is trimmed
-    [InlineData(@"@\\server\share\clip.txt", true)] // UNC
-    [InlineData(@"@\folder\clip.txt", true)]        // rooted backslash
-    [InlineData(@"@c:\x.txt", true)]                // drive letter is case-insensitive
+    [InlineData(@"  §C:\Users\me\x.png  ", true)]   // surrounding whitespace is trimmed
+    [InlineData(@"  @C:\Users\me\x.png  ", true)]
+    [InlineData(@"§\\server\share\clip.txt", true)] // UNC
+    [InlineData(@"@\\server\share\clip.txt", true)]
+    [InlineData(@"§\folder\clip.txt", true)]        // rooted backslash
+    [InlineData(@"@\folder\clip.txt", true)]
+    [InlineData(@"§c:\x.txt", true)]                // drive letter is case-insensitive
+    [InlineData(@"@c:\x.txt", true)]
     // Not references.
-    [InlineData("@here standup notes", false)]      // internal whitespace
-    [InlineData("@username", false)]                // no path after @
+    [InlineData("§here standup notes", false)]      // internal whitespace
+    [InlineData("@here standup notes", false)]
+    [InlineData("§username", false)]                // no path after the prefix
+    [InlineData("@username", false)]
     [InlineData("plain text", false)]
     [InlineData("", false)]
+    // Only the known prefixes count — an arbitrary leading character is not a reference, or a
+    // quoted path pasted from an error message would be silently ignored instead of saved.
+    [InlineData(@"%C:\Users\me\clip.txt", false)]
+    [InlineData(@"""C:\Users\me\clip.txt", false)]
+    [InlineData(@"C:\Users\me\clip.txt", false)]    // a bare path is not a reference
     // macOS cues are intentionally dropped in the Windows port.
-    [InlineData("@/Users/me/clip.txt", false)]      // forward-slash not recognized
-    [InlineData("@~/x.png", false)]                 // home (~) not recognized
+    [InlineData("§/Users/me/clip.txt", false)]      // forward-slash not recognized
+    [InlineData("@/Users/me/clip.txt", false)]
+    [InlineData("§~/x.png", false)]                 // home (~) not recognized
+    [InlineData("@~/x.png", false)]
     public void LooksLikeReferenceDetectsWindowsReferencesOnly(string text, bool expected)
     {
         Assert.Equal(expected, ClipboardSaver.LooksLikeReference(text));
+    }
+
+    /// <summary>
+    /// The backward-compatibility guarantee: detection knows every prefix ClipRef has
+    /// ever shipped, not just the configured one. A reference left on the clipboard by an older
+    /// build — or by the macOS app before its own update — must still be recognized, otherwise the
+    /// double-click guard breaks exactly when the prefix setting changes.
+    /// </summary>
+    [Fact]
+    public void LegacyAtPrefixStaysRecognizedAfterTheDefaultMovedToSectionSign()
+    {
+        Assert.True(ClipboardSaver.LooksLikeReference(@"@C:\logs\clip-2026-06-25_13.30.45.txt"));
+        Assert.True(ClipboardSaver.LooksLikeReference(@"§C:\logs\clip-2026-06-25_13.30.45.txt"));
     }
 
     // uniqueURL — generated clip-<timestamp>.<ext> names
