@@ -24,6 +24,9 @@ final class ClipboardSaverTests: XCTestCase {
     }
 
     func testReferenceIgnoredEvenWithImage() {
+        XCTAssertEqual(ClipboardSaver.decide(fileURL: nil, text: "§/Users/me/clip.txt", hasImage: false), .ignore)
+        XCTAssertEqual(ClipboardSaver.decide(fileURL: nil, text: "§/Users/me/clip.png", hasImage: true), .ignore)
+        // decide's ignore branch inherits detection, so the legacy prefix is guarded here too.
         XCTAssertEqual(ClipboardSaver.decide(fileURL: nil, text: "@/Users/me/clip.txt", hasImage: false), .ignore)
         XCTAssertEqual(ClipboardSaver.decide(fileURL: nil, text: "@/Users/me/clip.png", hasImage: true), .ignore)
     }
@@ -53,12 +56,32 @@ final class ClipboardSaverTests: XCTestCase {
     // MARK: - looksLikeReference
 
     func testReferenceDetection() {
-        XCTAssertTrue(ClipboardSaver.looksLikeReference("@/Users/me/clip.txt"))
-        XCTAssertTrue(ClipboardSaver.looksLikeReference("  @~/Developer/x.png  "))   // trimmed
-        XCTAssertFalse(ClipboardSaver.looksLikeReference("@here standup notes"))     // whitespace
-        XCTAssertFalse(ClipboardSaver.looksLikeReference("@username"))               // no path
+        XCTAssertTrue(ClipboardSaver.looksLikeReference("§/Users/me/clip.txt"))
+        XCTAssertTrue(ClipboardSaver.looksLikeReference("  §~/Developer/x.png  "))   // trimmed
+        XCTAssertFalse(ClipboardSaver.looksLikeReference("§here standup notes"))     // whitespace
+        XCTAssertFalse(ClipboardSaver.looksLikeReference("§username"))               // no path
         XCTAssertFalse(ClipboardSaver.looksLikeReference("plain text"))
         XCTAssertFalse(ClipboardSaver.looksLikeReference(""))
+    }
+
+    /// The backward-compatibility guarantee: detection knows every prefix ClipRef has ever
+    /// shipped, not just the configured one. A reference left on the clipboard by an older
+    /// build must still be recognised, or the double-click guard breaks exactly when the
+    /// `referencePrefix` setting changes.
+    func testLegacyAtPrefixStaysRecognized() {
+        XCTAssertTrue(ClipboardSaver.looksLikeReference("@/Users/me/clip.txt"))
+        XCTAssertTrue(ClipboardSaver.looksLikeReference("  @~/Developer/x.png  "))
+        XCTAssertFalse(ClipboardSaver.looksLikeReference("@here standup notes"))
+        XCTAssertFalse(ClipboardSaver.looksLikeReference("@username"))
+    }
+
+    /// Only the known prefixes count. Without this, "simplifying" the guard to accept any
+    /// leading character would still pass — and a quoted path pasted from an error message
+    /// would be silently ignored instead of saved.
+    func testUnknownPrefixIsNotAReference() {
+        XCTAssertFalse(ClipboardSaver.looksLikeReference("%/Users/me/clip.txt"))
+        XCTAssertFalse(ClipboardSaver.looksLikeReference("\"/Users/me/clip.txt"))
+        XCTAssertFalse(ClipboardSaver.looksLikeReference("/Users/me/clip.txt"))   // bare path
     }
 
     // MARK: - uniqueURL

@@ -8,7 +8,7 @@ enum SaveResult {
 }
 
 /// Reads the system clipboard, writes it to a file inside a user-configurable
-/// folder, and then puts an `@`-prefixed absolute path back on the clipboard so it
+/// folder, and then puts a prefixed absolute path back on the clipboard so it
 /// can be pasted straight into Claude Code as a file reference.
 ///
 /// A file on the clipboard is copied keeping its original name (`report.pdf`),
@@ -20,11 +20,22 @@ final class ClipboardSaver {
     private enum Const {
         static let filePrefix = "clip-"
         // Dashes for the date, dots for the time (mirrors macOS screenshot names) so the
-        // two read apart at a glance; `_` between. Shell- and `@`-reference-safe, sortable.
+        // two read apart at a glance; `_` between. Shell- and reference-safe, sortable.
         static let timestampFormat = "yyyy-MM-dd'_'HH.mm.ss"
         static let textExtension = "txt"
         static let imageExtension = "png"
         static let defaultRetentionDays = 7
+        // "§" rather than "@": in Claude Code and opencode "@" opens the file-mention
+        // autocomplete, and a resolved mention pulls the file into context at once — the
+        // opposite of what ClipRef is for.
+        static let defaultReferencePrefix = "§"
+        // Every prefix ClipRef has ever put on the clipboard. Deliberately a fixed set rather
+        // than the configured `referencePrefix`: the question `looksLikeReference` answers is
+        // historical — "did some ClipRef build put this here?" — about a clipboard that may
+        // still hold a reference from an older build or from before the user changed the
+        // setting. Binding it to the current setting would break the guard exactly when the
+        // prefix changes. A user-configured exotic prefix is therefore unguarded.
+        static let knownReferencePrefixes: [Character] = ["§", "@"]
         // Copies run synchronously on the main thread, so cap the size to keep a huge
         // file from freezing the menu while it copies. 100 MB (decimal, matches Finder).
         static let maxCopyableBytes = 100 * 1_000_000
@@ -69,8 +80,19 @@ final class ClipboardSaver {
         return value > 0 ? value : Const.defaultRetentionDays
     }
 
+    /// The marker put in front of the saved path on the clipboard. Override with
+    /// `defaults write de.manuelwelsch.ClipRef referencePrefix <x>` — `@` restores the
+    /// original behaviour. A missing, empty, or whitespace-only value falls back to `§`;
+    /// stored values are trimmed, since a prefix carrying whitespace would produce a reference
+    /// `looksLikeReference` rejects by design, silently breaking the double-click guard.
+    var referencePrefix: String {
+        let value = (defaults.string(forKey: "referencePrefix") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? Const.defaultReferencePrefix : value
+    }
+
     /// Saves the clipboard to a new file and replaces the clipboard contents with
-    /// an `@<path>` reference. A file wins if present, then text, then an image.
+    /// a `<prefix><path>` reference. A file wins if present, then text, then an image.
     @discardableResult
     func saveClipboard() -> SaveResult {
         let pasteboard = NSPasteboard.general
@@ -104,7 +126,7 @@ final class ClipboardSaver {
     }
 
     /// What `saveClipboard` should do, decided purely from what's on the clipboard:
-    /// a real file wins (copied as-is), then text, then an image; our own `@<path>`
+    /// a real file wins (copied as-is), then text, then an image; our own prefixed-path
     /// references are ignored. Pure and side-effect-free, so it can be unit-tested.
     enum SaveDecision: Equatable {
         case copyFile(URL)
@@ -131,7 +153,7 @@ final class ClipboardSaver {
     }
 
     /// A clipboard file is only copyable if it's a regular file. Folders and app bundles
-    /// (which are directories) are rejected — an `@`-reference to a directory isn't useful
+    /// (which are directories) are rejected — a reference to a directory isn't useful
     /// to Claude Code, and a real app bundle can be huge.
     static func isCopyableFile(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
@@ -145,19 +167,21 @@ final class ClipboardSaver {
         return size <= maxBytes
     }
 
-    /// True when the clipboard already holds one of our `@<path>` references: a single
-    /// token starting with `@` followed by an absolute (`/`) or home (`~`) path. Used to
-    /// skip re-saving a reference that the previous click just put on the clipboard.
+    /// True when the clipboard already holds one of our references: a single token starting
+    /// with a known prefix (see `Const.knownReferencePrefixes`) followed by an absolute (`/`)
+    /// or home (`~`) path. Used to skip re-saving a reference that the previous click just put
+    /// on the clipboard.
     static func looksLikeReference(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("@"),
+        guard let first = trimmed.first,
+              Const.knownReferencePrefixes.contains(first),
               !trimmed.contains(where: { $0.isWhitespace }) else { return false }
         let path = trimmed.dropFirst()
         return path.hasPrefix("/") || path.hasPrefix("~")
     }
 
     /// Creates the folder, picks the destination via `name`, writes the file via
-    /// `body`, swaps the clipboard for an `@<path>` reference, and prunes old files.
+    /// `body`, swaps the clipboard for a `<prefix><path>` reference, and prunes old files.
     private func write(named name: (URL) -> URL, pasteboard: NSPasteboard, body: (URL) throws -> Void) -> SaveResult {
         let folder: URL
         do {
@@ -177,10 +201,10 @@ final class ClipboardSaver {
         // never anything else the user keeps in the folder.
         Self.tagAsSaved(fileURL, at: Date())
 
-        // Replace the clipboard with an @-reference ready to paste into Claude Code.
+        // Replace the clipboard with a reference ready to paste into Claude Code.
         // The saved content is already safely on disk.
         pasteboard.clearContents()
-        pasteboard.setString("@\(fileURL.path)", forType: .string)
+        pasteboard.setString("\(referencePrefix)\(fileURL.path)", forType: .string)
 
         pruneOldFiles()
         return .success(fileURL)
