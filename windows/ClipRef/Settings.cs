@@ -33,6 +33,22 @@ internal sealed class Settings
         set => _store.Set(Const.RetentionDaysKey, value.ToString(CultureInfo.InvariantCulture));
     }
 
+    /// <summary>
+    /// The marker put in front of the saved path on the clipboard; a missing, empty, or
+    /// whitespace-only value falls back to <c>§</c>. Stored values are trimmed: a prefix carrying
+    /// whitespace would produce a reference that <see cref="ClipboardSaver.LooksLikeReference"/>
+    /// rejects by design, silently breaking the double-click guard.
+    /// </summary>
+    internal string ReferencePrefix
+    {
+        get
+        {
+            var stored = (_store.Get(Const.ReferencePrefixKey) ?? string.Empty).Trim();
+            return stored.Length > 0 ? stored : Const.DefaultReferencePrefix;
+        }
+        set => _store.Set(Const.ReferencePrefixKey, value);
+    }
+
     /// <summary>Whether the launch-at-login item has been configured; missing or unparseable reads as false.</summary>
     internal bool DidConfigureLoginItem
     {
@@ -63,6 +79,12 @@ internal sealed class Settings
         internal const string LogFolderPathKey = "logFolderPath";
         internal const string RetentionDaysKey = "retentionDays";
         internal const string DidConfigureLoginItemKey = "didConfigureLoginItem";
+        internal const string ReferencePrefixKey = "referencePrefix";
         internal const int DefaultRetentionDays = 7;
+
+        // "§" rather than the macOS reference's "@": in Claude Code and opencode "@" opens the
+        // file-mention autocomplete, and a resolved mention pulls the file into context at once —
+        // the opposite of what ClipRef is for.
+        internal const string DefaultReferencePrefix = "§";
     }
 }
