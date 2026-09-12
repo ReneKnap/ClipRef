@@ -13,15 +13,22 @@ public class ClipboardSaveServiceTests
 {
     private const string Folder = @"C:\logs";
 
+    /// <summary>The default reference prefix the put-back assertions below expect.</summary>
+    private const string Prefix = "§";
+
     private static readonly DateTime FixedClock = new(2026, 6, 25, 13, 30, 45);
 
     private static ClipboardSaveService Service(
         ClipboardSnapshot snapshot,
         InMemoryFileSystem fileSystem,
         InMemoryClipboardWriter writer,
-        InMemoryFileTagger? tagger = null)
+        InMemoryFileTagger? tagger = null,
+        string? referencePrefix = null)
     {
-        var settings = new Settings(new InMemorySettingsStore(("logFolderPath", Folder)));
+        var store = referencePrefix is null
+            ? new InMemorySettingsStore(("logFolderPath", Folder))
+            : new InMemorySettingsStore(("logFolderPath", Folder), ("referencePrefix", referencePrefix));
+        var settings = new Settings(store);
         return new ClipboardSaveService(
             new InMemoryClipboardReader(snapshot), writer, fileSystem, tagger ?? new InMemoryFileTagger(),
             // UTC display zone keeps the exact clip-<timestamp> filenames deterministic regardless of
@@ -39,7 +46,31 @@ public class ClipboardSaveServiceTests
         var expected = Path.Combine(Folder, "clip-2026-06-25_13.30.45.txt");
         Assert.Equal<SaveResult>(new SaveResult.Saved(expected), result);
         Assert.Equal("hello world", fileSystem.TextAt(expected));
-        Assert.Equal("@" + expected, writer.LastText);
+        Assert.Equal(Prefix + expected, writer.LastText);
+    }
+
+    [Fact]
+    public void ConfiguredPrefix_ReachesTheClipboard()
+    {
+        var fileSystem = new InMemoryFileSystem();
+        var writer = new InMemoryClipboardWriter();
+        var result = Service(new ClipboardSnapshot(null, "hello world", null), fileSystem, writer, referencePrefix: "@").Save();
+
+        var expected = Path.Combine(Folder, "clip-2026-06-25_13.30.45.txt");
+        Assert.Equal<SaveResult>(new SaveResult.Saved(expected), result);
+        Assert.Equal("@" + expected, writer.LastText);   // the stored value wins over the default
+    }
+
+    [Fact]
+    public void CustomPrefix_ReachesTheClipboardVerbatim()
+    {
+        var fileSystem = new InMemoryFileSystem();
+        var writer = new InMemoryClipboardWriter();
+        var result = Service(new ClipboardSnapshot(null, "hello world", null), fileSystem, writer, referencePrefix: "ref:").Save();
+
+        var expected = Path.Combine(Folder, "clip-2026-06-25_13.30.45.txt");
+        Assert.Equal<SaveResult>(new SaveResult.Saved(expected), result);
+        Assert.Equal("ref:" + expected, writer.LastText);
     }
 
     [Fact]
@@ -53,7 +84,7 @@ public class ClipboardSaveServiceTests
         var expected = Path.Combine(Folder, "clip-2026-06-25_13.30.45.png");
         Assert.Equal<SaveResult>(new SaveResult.Saved(expected), result);
         Assert.Equal(image, fileSystem.BytesAt(expected));
-        Assert.Equal("@" + expected, writer.LastText);
+        Assert.Equal(Prefix + expected, writer.LastText);
     }
 
     [Fact]
@@ -68,12 +99,16 @@ public class ClipboardSaveServiceTests
         Assert.Null(writer.LastText);
     }
 
-    [Fact]
-    public void ReferenceText_NothingToSave()
+    [Theory]
+    [InlineData(@"§C:\logs\clip.txt")]
+    // The legacy prefix aborts the save too, even though the configured prefix is now "§" — a
+    // reference an older build left on the clipboard must not be saved back as text.
+    [InlineData(@"@C:\logs\clip.txt")]
+    public void ReferenceText_NothingToSave(string clipboardText)
     {
         var fileSystem = new InMemoryFileSystem();
         var writer = new InMemoryClipboardWriter();
-        var result = Service(new ClipboardSnapshot(null, @"@C:\logs\clip.txt", null), fileSystem, writer).Save();
+        var result = Service(new ClipboardSnapshot(null, clipboardText, null), fileSystem, writer).Save();
 
         Assert.Equal<SaveResult>(new SaveResult.NothingToSave(), result);
         Assert.True(fileSystem.WroteNothing);
@@ -92,7 +127,7 @@ public class ClipboardSaveServiceTests
         var expected = Path.Combine(Folder, "report.pdf");
         Assert.Equal<SaveResult>(new SaveResult.Saved(expected), result);
         Assert.True(fileSystem.CopiedTo(expected));
-        Assert.Equal("@" + expected, writer.LastText);
+        Assert.Equal(Prefix + expected, writer.LastText);
     }
 
     [Fact]
@@ -137,7 +172,7 @@ public class ClipboardSaveServiceTests
 
         var expected = Path.Combine(Folder, "clip-2026-06-25_13.30.45-2.txt");
         Assert.Equal<SaveResult>(new SaveResult.Saved(expected), result);
-        Assert.Equal("@" + expected, writer.LastText);
+        Assert.Equal(Prefix + expected, writer.LastText);
     }
 
     [Fact]
@@ -166,7 +201,7 @@ public class ClipboardSaveServiceTests
 
         var expected = Path.Combine(Folder, "my report.pdf");
         Assert.Equal<SaveResult>(new SaveResult.Saved(expected), result);
-        Assert.Equal("@" + expected, writer.LastText); // verbatim, no quoting/escaping
+        Assert.Equal(Prefix + expected, writer.LastText); // verbatim, no quoting/escaping
     }
 
     [Fact]
@@ -240,7 +275,7 @@ public class ClipboardSaveServiceTests
         // 13:30:45 UTC + 2 h → the name (and the @-reference) show 15:30:45 local wall-clock…
         var expected = Path.Combine(Folder, "clip-2026-06-25_15.30.45.txt");
         Assert.Equal<SaveResult>(new SaveResult.Saved(expected), result);
-        Assert.Equal("@" + expected, writer.LastText);
+        Assert.Equal(Prefix + expected, writer.LastText);
         // …while the ownership tag keeps the raw, unshifted UTC instant so prune stays correct.
         Assert.Equal(utcInstant, tagger.TagOf(expected));
     }
@@ -335,7 +370,7 @@ public class ClipboardSaveServiceTests
 
         var expected = Path.Combine(Folder, "clip-2026-06-25_13.30.45.txt");
         Assert.Equal<SaveResult>(new SaveResult.Saved(expected), result);
-        Assert.Equal("@" + expected, writer.LastText);
+        Assert.Equal(Prefix + expected, writer.LastText);
     }
 
     // ---- PruneOldFiles: deletes only our own expired files, by the tag alone ----
@@ -457,7 +492,7 @@ public class ClipboardSaveServiceTests
 
         var saved = Path.Combine(Folder, "clip-2026-06-25_13.30.45.txt");
         Assert.Equal<SaveResult>(new SaveResult.Saved(saved), result); // the save still completes
-        Assert.Equal("@" + saved, writer.LastText);                    // and puts its @-ref back
+        Assert.Equal(Prefix + saved, writer.LastText);                    // and puts its @-ref back
         Assert.False(fileSystem.Exists(expired));                      // prune ran after the save
         Assert.True(fileSystem.Exists(saved));                         // the just-saved file survives
     }

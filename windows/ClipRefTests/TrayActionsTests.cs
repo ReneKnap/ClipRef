@@ -15,6 +15,9 @@ public class TrayActionsTests
 {
     private const string Folder = @"C:\logs";
 
+    /// <summary>The default reference prefix the put-back assertions below expect.</summary>
+    private const string Prefix = "§";
+
     private static readonly DateTime FixedClock = new(2026, 6, 25, 13, 30, 45);
 
     private sealed record Harness(
@@ -96,7 +99,7 @@ public class TrayActionsTests
         var result = harness.Service.Save();
         var expected = Path.Combine(picked, "clip-2026-06-25_13.30.45.txt");
         Assert.Equal<SaveResult>(new SaveResult.Saved(expected), result);
-        Assert.Equal("@" + expected, harness.Writer.LastText);
+        Assert.Equal(Prefix + expected, harness.Writer.LastText);
     }
 
     [Fact]
@@ -120,7 +123,7 @@ public class TrayActionsTests
 
         var expected = Path.Combine(Folder, "clip-2026-06-25_13.30.45.txt");
         Assert.Equal("hello world", harness.FileSystem.TextAt(expected)); // delegated to Save()
-        Assert.Equal("@" + expected, harness.Writer.LastText);            // @-reference put back
+        Assert.Equal(Prefix + expected, harness.Writer.LastText);            // @-reference put back
     }
 
     [Fact]
@@ -135,7 +138,7 @@ public class TrayActionsTests
         Assert.Equal(SaveFeedback.SoundKind.Success, feedback.Sound);
         Assert.Null(feedback.DialogMessage);                           // success raises no dialog
         var expected = Path.Combine(Folder, "clip-2026-06-25_13.30.45.txt");
-        Assert.Equal("@" + expected, harness.Writer.LastText);         // sanity: the save still happened
+        Assert.Equal(Prefix + expected, harness.Writer.LastText);         // sanity: the save still happened
     }
 
     [Fact]
