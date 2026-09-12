@@ -3,8 +3,9 @@ namespace ClipRef;
 /// <summary>
 /// Orchestrates the save action: reads the clipboard, classifies it via
 /// <see cref="ClipboardSaver.Decide(ClipboardSnapshot)"/>, writes the payload to a uniquely-named
-/// file in the destination folder, stamps it with its NTFS-ADS ownership tag, and puts an
-/// <c>@&lt;path&gt;</c> reference back on the clipboard, then prunes expired tagged files. Ports the
+/// file in the destination folder, stamps it with its NTFS-ADS ownership tag, and puts a
+/// <see cref="Settings.ReferencePrefix"/>-prefixed path reference back on the clipboard, then prunes
+/// expired tagged files. Ports the
 /// write half of the macOS <c>saveClipboard</c> (the <c>write</c> helper) plus its trailing
 /// <c>pruneOldFiles</c>. All disk, tag, and clipboard access goes through the injected seams, so the
 /// flow is unit-testable; the UTC clock makes the ownership tag and the prune cutoff deterministic,
@@ -141,15 +142,15 @@ internal sealed class ClipboardSaveService
         }
         catch (Exception)
         {
-            // Best-effort: a failed ownership tag must not deny the user their @-reference (parity
+            // Best-effort: a failed ownership tag must not deny the user their reference (parity
             // with the macOS original discarding setxattr's result). Prune simply won't recognise
             // an untagged file as ours and will leave it alone.
         }
 
-        _clipboardWriter.SetText("@" + destination);
+        _clipboardWriter.SetText(_settings.ReferencePrefix + destination);
 
         // Self-cleaning runs on every successful save (macOS saveClipboard line 185): the content is
-        // already safely on disk and the @-reference is back on the clipboard. Best-effort and never
+        // already safely on disk and the reference is back on the clipboard. Best-effort and never
         // throws, so it cannot turn a completed save into a failure.
         PruneOldFiles();
         return new SaveResult.Saved(destination);

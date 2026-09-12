@@ -38,6 +38,39 @@ public class SettingsTests
         Assert.Equal("30", store.Get("retentionDays"));
     }
 
+    // ReferencePrefix — default "§" unless a meaningful stored value overrides it. Defaults away
+    // from "@" because "@" triggers the file-mention autocomplete in Claude Code and opencode,
+    // which pulls the file into context immediately — the opposite of what ClipRef is for.
+
+    [Fact]
+    public void ReferencePrefixDefaultsToSectionSignWhenMissing()
+    {
+        var settings = new Settings(new InMemorySettingsStore());
+        Assert.Equal("§", settings.ReferencePrefix);
+    }
+
+    [Theory]
+    [InlineData("", "§")]         // empty falls back
+    [InlineData("   ", "§")]      // whitespace-only falls back
+    [InlineData("@", "@")]        // an explicit value wins — restores the legacy prefix
+    [InlineData(" @ ", "@")]      // trimmed: an untrimmed prefix would produce a reference
+                                  // containing whitespace, which LooksLikeReference rejects
+    [InlineData("ref:", "ref:")]  // multi-character prefixes are allowed
+    public void ReferencePrefixFallsBackToSectionSignUnlessMeaningful(string stored, string expected)
+    {
+        var settings = new Settings(new InMemorySettingsStore(("referencePrefix", stored)));
+        Assert.Equal(expected, settings.ReferencePrefix);
+    }
+
+    [Fact]
+    public void ReferencePrefixWritesThroughToStore()
+    {
+        var store = new InMemorySettingsStore();
+        var settings = new Settings(store) { ReferencePrefix = ">>" };
+        Assert.Equal(">>", settings.ReferencePrefix);
+        Assert.Equal(">>", store.Get("referencePrefix"));
+    }
+
     // DidConfigureLoginItem — default false.
 
     [Fact]

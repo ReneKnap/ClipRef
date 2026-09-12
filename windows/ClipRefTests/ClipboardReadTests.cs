@@ -63,7 +63,9 @@ public class ClipboardReadTests
     }
 
     [Theory]
-    [InlineData(@"@C:\logs\clip.txt")]
+    [InlineData(@"§C:\logs\clip.txt")]
+    [InlineData(@"§\\server\share\clip.txt")]
+    [InlineData(@"@C:\logs\clip.txt")]              // legacy prefix stays guarded
     [InlineData(@"@\\server\share\clip.txt")]
     public void ReferenceTextIsIgnored(string text)
     {
@@ -72,8 +74,10 @@ public class ClipboardReadTests
 
     [Theory]
     [InlineData("plain text")]
-    [InlineData(@"@C:\has space\clip.txt")] // an @-token with whitespace is not a reference
-    [InlineData("@relative/path")]          // not a Windows absolute path
+    [InlineData(@"§C:\has space\clip.txt")] // a prefixed token with whitespace is not a reference
+    [InlineData(@"@C:\has space\clip.txt")]
+    [InlineData("§relative/path")]          // not a Windows absolute path
+    [InlineData("@relative/path")]
     public void NonReferenceTextSaved(string text)
     {
         Assert.Equal<SaveDecision>(new SaveDecision.SaveText(text), ClipboardSaver.Decide(new ClipboardSnapshot(null, text, null)));
